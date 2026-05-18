@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./train/checkpoints:/app/train/checkpoints:ro
+    depends_on: [redis]
+
+  worker:
+    build: .
+    command: celery -A app.worker worker --concurrency=4 --loglevel=info
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./train/checkpoints:/app/train/checkpoints:ro
+    depends_on: [redis]
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]

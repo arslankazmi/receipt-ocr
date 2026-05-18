@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/receipts-grocery/schema.json",
+  "title": "GroceryReceipt",
+  "description": "Structured representation of a single grocery receipt — the target output for OCR + extraction models.",
+  "type": "object",
+  "required": ["store", "date", "items", "total"],
+  "properties": {
+    "store": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Store brand name (e.g. 'Whole Foods Market')" },
+        "branch": { "type": ["string", "null"], "description": "Branch / location name if printed (e.g. 'Bayswater')" },
+        "address": { "type": ["string", "null"] },
+        "phone": { "type": ["string", "null"] },
+        "vat_number": { "type": ["string", "null"], "description": "VAT / tax registration number if printed" }
+      }
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Purchase date in ISO format (YYYY-MM-DD)"
+    },
+    "time": {
+      "type": ["string", "null"],
+      "description": "Purchase time HH:MM (24-hour) if printed"
+    },
+    "receipt_number": {
+      "type": ["string", "null"],
+      "description": "Transaction / receipt ID as printed"
+    },
+    "cashier": {
+      "type": ["string", "null"]
+    },
+    "register": {
+      "type": ["string", "null"]
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/LineItem" }
+    },
+    "subtotal": {
+      "type": ["number", "null"],
+      "description": "Pre-tax sum of all items, after discounts"
+    },
+    "discounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "amount"],
+        "properties": {
+          "description": { "type": "string" },
+          "amount": { "type": "number", "description": "Discount amount as a positive number" },
+          "applies_to_line": { "type": ["integer", "null"], "description": "Line number this discount applies to, if itemised" }
+        }
+      }
+    },
+    "taxes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rate", "amount"],
+        "properties": {
+          "label": { "type": "string", "description": "e.g. 'VAT 20%', 'GST', 'F' (food category)" },
+          "rate": { "type": "number", "description": "Rate as decimal (e.g. 0.20 for 20%)" },
+          "amount": { "type": "number" }
+        }
+      }
+    },
+    "total": {
+      "type": "number",
+      "description": "Final amount paid"
+    },
+    "currency": {
+      "type": "string",
+      "description": "ISO 4217 code: USD, GBP, EUR, etc.",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "payment": {
+      "type": "object",
+      "properties": {
+        "method": { "type": "string", "enum": ["card", "cash", "contactless", "mobile_wallet", "gift_card", "other"] },
+        "card_last4": { "type": ["string", "null"], "pattern": "^[0-9]{4}$" },
+        "amount_tendered": { "type": ["number", "null"] },
+        "change_given": { "type": ["number", "null"] }
+      }
+    },
+    "loyalty": {
+      "type": ["object", "null"],
+      "properties": {
+        "program": { "type": "string", "description": "e.g. 'Tesco Clubcard', 'Wegmans Shoppers Club'" },
+        "card_id_masked": { "type": "string" },
+        "points_earned": { "type": "number" },
+        "points_balance": { "type": "number" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Provenance + capture metadata, not printed on the receipt itself.",
+      "properties": {
+        "source": { "type": "string", "enum": ["user_scan", "sroie", "cord", "synthetic", "other"] },
+        "annotator": { "type": "string" },
+        "captured_at": { "type": "string", "format": "date-time" },
+        "device": { "type": ["string", "null"], "description": "e.g. 'Pixel 8 Pro', 'iPhone 15'" },
+        "notes": { "type": ["string", "null"] },
+        "image_path": { "type": ["string", "null"], "description": "Relative path to source image" }
+      }
+    }
+  },
+  "$defs": {
+    "LineItem": {
+      "type": "object",
+      "required": ["line_number", "name", "total"],
+      "properties": {
+        "line_number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed position of this line on the receipt"
+        },
+        "name": {
+          "type": "string",
+          "description": "Verbatim product name as printed (may include abbreviations)"
+        },
+        "normalized_name": {
+          "type": ["string", "null"],
+          "description": "Cleaned, full product name if abbreviations were resolved"
+        },
+        "sku": {
+          "type": ["string", "null"],
+          "description": "Product SKU / barcode / PLU code if printed"
+        },
+        "category": {
+          "type": ["string", "null"],
+          "description": "Inferred category: produce, dairy, bakery, frozen, household, etc."
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Quantity purchased (units, weight, or volume — see 'unit')"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["each", "lb", "kg", "oz", "g", "L", "mL", "fl_oz", "pack", "bunch", "other"]
+        },
+        "unit_price": {
+          "type": ["number", "null"],
+          "description": "Price per unit"
+        },
+        "total": {
+          "type": "number",
+          "description": "Line total (quantity × unit_price minus any line-level discount)"
+        },
+        "tax_code": {
+          "type": ["string", "null"],
+          "description": "Receipt-specific tax indicator (e.g. 'F' = food/exempt, 'T' = taxable)"
+        },
+        "discount_applied": {
+          "type": ["number", "null"],
+          "description": "Line-level discount amount (positive)"
+        }
+      }
+    }
+  }
+}

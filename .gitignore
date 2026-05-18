@@ -1,0 +1,16 @@
+train/checkpoints/
+*.jsonl
+images/
+*.jpg
+*.jpeg
+*.png
+__pycache__/
+.venv/
+*.egg-info/
+dist/
+.env
+*.pt
+*.safetensors
+eval/results.json
+eval/comparison_results.json
+data/shards/

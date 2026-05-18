@@ -1,0 +1,34 @@
+storage:
+  backend: local        # or s3
+  bucket: my-receipts   # S3 only
+  prefix: cord/images/
+  local_base: ""        # set to absolute path of cord images dir when using local
+
+data:
+  annotations: "/Users/akazmi/Documents/arslan/arslan-projects/sandbox/datasets/receipts-grocery/public/cord/annotations.jsonl"
+  images_dir: "/Users/akazmi/Documents/arslan/arslan-projects/sandbox/datasets/receipts-grocery/public/cord/images"
+  val_ratio: 0.1
+  seed: 42
+
+model:
+  path: train/checkpoints/donut-receipt-lora  # or s3://bucket/checkpoints/...
+  base: naver-clova-ix/donut-base
+
+eval:
+  concurrency: 1        # 1=sync, >1=async with semaphore
+  max_samples: null     # null=all val samples
+  output: eval/results.json
+
+train:
+  epochs: 10
+  batch_size: 4
+  lr: 5.0e-5
+  max_length: 512
+  lora_r: 8
+  lora_alpha: 16
+
+api:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - "*"

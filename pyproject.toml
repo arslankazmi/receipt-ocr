@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "receipt-ocr"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "transformers",
+    "peft",
+    "datasets",
+    "pillow",
+    "rapidfuzz",
+    "fastapi",
+    "uvicorn[standard]",
+    "torch",
+    "accelerate",
+    "webdataset",
+    "boto3",
+    "celery[redis]",
+    "jsonschema",
+    "pyyaml",
+    "tqdm",
+    "numpy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["data", "scripts", "eval", "train", "app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
