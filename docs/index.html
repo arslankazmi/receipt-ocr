@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>receipt-ocr — VLM-powered receipt extraction</title>
+  <meta name="description" content="VLM-powered receipt OCR pipeline: multi-model eval (Donut-CORD 0.76 F1), Donut finetune, FastAPI, WebDataset shards. Scales from 200 images to 550 GB.">
+  <meta property="og:title" content="receipt-ocr — VLM Receipt Extraction Pipeline">
+  <meta property="og:description" content="Multi-model receipt OCR: Donut-CORD 0.76 F1 baseline, scalable to 550 GB. Open source.">
+  <meta property="og:url" content="https://arslankazmi.github.io/receipt-ocr/">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            teal: { 400: '#2dd4bf', 500: '#14b8a6', 600: '#0d9488' },
+            emerald: { 400: '#34d399', 500: '#10b981' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .syntax-key    { color: #2dd4bf; }
+    .syntax-string { color: #34d399; }
+    .syntax-number { color: #fb923c; }
+    .syntax-bool   { color: #a78bfa; }
+    .syntax-null   { color: #94a3b8; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+    .lane-local { fill: rgba(20, 184, 166, 0.08); stroke: #14b8a6; stroke-width: 1.5; }
+    .lane-scale { fill: rgba(52, 211, 153, 0.08); stroke: #10b981; stroke-width: 1.5; }
+    .box  { fill: #1e293b; stroke: #475569; stroke-width: 1.5; rx: 6; }
+    .box-accent { fill: #134e4a; stroke: #2dd4bf; stroke-width: 1.5; }
+    .arrow { stroke: #64748b; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+    .arrow-accent { stroke: #2dd4bf; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead-accent); }
+    .label { font-size: 11px; fill: #e2e8f0; font-family: system-ui, sans-serif; }
+    .label-sm { font-size: 10px; fill: #94a3b8; font-family: system-ui, sans-serif; }
+    .lane-title { font-size: 12px; font-weight: 600; fill: #94a3b8; font-family: system-ui, sans-serif; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+  <!-- ===== A. HEADER ===== -->
+  <header class="border-b border-gray-800 py-10 px-6 text-center">
+    <h1 class="text-5xl font-black tracking-tight text-white mb-2">
+      receipt<span class="text-teal-400">-ocr</span>
+    </h1>
+    <p class="text-gray-400 text-lg mb-4">
+      VLM-powered receipt extraction &middot; local demo &rarr; 550 GB scale
+    </p>
+    <a
+      href="https://github.com/arslankazmi/receipt-ocr"
+      target="_blank"
+      class="inline-flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-full px-4 py-1.5 text-sm text-gray-300 transition"
+    >
+      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483
+          0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466
+          -.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832
+          .092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688
+          -.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1
+          2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595
+          1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012
+          2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+      </svg>
+      arslankazmi/receipt-ocr
+    </a>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-6 py-12 space-y-16">
+
+    <!-- ===== B. ARCHITECTURE DIAGRAM ===== -->
+    <section>
+      <h2 class="text-2xl font-bold text-white mb-6">Architecture</h2>
+      <div class="overflow-x-auto rounded-xl border border-gray-800 bg-gray-900 p-4">
+        <svg viewBox="0 0 820 320" width="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+            </marker>
+            <marker id="arrowhead-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+              <polygon points="0 0, 8 3, 0 6" fill="#2dd4bf"/>
+            </marker>
+          </defs>
+
+          <!-- Lane 1: Local demo -->
+          <rect x="10" y="10" width="800" height="130" rx="10" class="lane-local"/>
+          <text x="22" y="30" class="lane-title">Lane 1 — Local demo (200 images)</text>
+
+          <!-- Lane 2: At scale -->
+          <rect x="10" y="160" width="800" height="145" rx="10" class="lane-scale"/>
+          <text x="22" y="180" class="lane-title">Lane 2 — At scale (550 GB+)</text>
+
+          <!-- ---- LANE 1 NODES ---- -->
+          <!-- Phone/Image -->
+          <rect x="30" y="50" width="90" height="50" rx="6" class="box"/>
+          <text x="75" y="71" text-anchor="middle" class="label">Phone /</text>
+          <text x="75" y="85" text-anchor="middle" class="label">Image</text>
+
+          <!-- LocalBackend -->
+          <rect x="175" y="50" width="110" height="50" rx="6" class="box"/>
+          <text x="230" y="71" text-anchor="middle" class="label">LocalBackend</text>
+          <text x="230" y="85" text-anchor="middle" class="label-sm">(disk)</text>
+
+          <!-- Donut/Claude -->
+          <rect x="345" y="50" width="130" height="50" rx="6" class="box-accent"/>
+          <text x="410" y="71" text-anchor="middle" class="label">Donut + LoRA</text>
+          <text x="410" y="85" text-anchor="middle" class="label-sm">/ Claude fallback</text>
+
+          <!-- Schema Validator -->
+          <rect x="535" y="50" width="120" height="50" rx="6" class="box"/>
+          <text x="595" y="71" text-anchor="middle" class="label">Schema</text>
+          <text x="595" y="85" text-anchor="middle" class="label">Validator</text>
+
+          <!-- JSON -->
+          <rect x="715" y="50" width="80" height="50" rx="6" class="box-accent"/>
+          <text x="755" y="79" text-anchor="middle" class="label">JSON</text>
+
+          <!-- Arrows lane 1 -->
+          <line x1="120" y1="75" x2="173" y2="75" class="arrow"/>
+          <line x1="285" y1="75" x2="343" y2="75" class="arrow-accent"/>
+          <line x1="475" y1="75" x2="533" y2="75" class="arrow"/>
+          <line x1="655" y1="75" x2="713" y2="75" class="arrow-accent"/>
+
+          <!-- ---- LANE 2 NODES ---- -->
+          <!-- Phone/Image -->
+          <rect x="30" y="195" width="90" height="50" rx="6" class="box"/>
+          <text x="75" y="216" text-anchor="middle" class="label">Phone /</text>
+          <text x="75" y="230" text-anchor="middle" class="label">Image</text>
+
+          <!-- S3Backend + WebDataset -->
+          <rect x="160" y="195" width="140" height="50" rx="6" class="box"/>
+          <text x="230" y="216" text-anchor="middle" class="label">S3Backend +</text>
+          <text x="230" y="230" text-anchor="middle" class="label-sm">WebDataset shards</text>
+
+          <!-- Multi-GPU -->
+          <rect x="345" y="195" width="140" height="50" rx="6" class="box-accent"/>
+          <text x="415" y="211" text-anchor="middle" class="label">Multi-GPU Donut</text>
+          <text x="415" y="225" text-anchor="middle" class="label-sm">/ Async Claude 50x</text>
+          <text x="415" y="238" text-anchor="middle" class="label-sm">parallel</text>
+
+          <!-- Schema Validator -->
+          <rect x="535" y="195" width="120" height="50" rx="6" class="box"/>
+          <text x="595" y="216" text-anchor="middle" class="label">Schema</text>
+          <text x="595" y="230" text-anchor="middle" class="label">Validator</text>
+
+          <!-- JSON -->
+          <rect x="715" y="195" width="80" height="50" rx="6" class="box-accent"/>
+          <text x="755" y="224" text-anchor="middle" class="label">JSON</text>
+
+          <!-- Arrows lane 2 -->
+          <line x1="120" y1="220" x2="158" y2="220" class="arrow"/>
+          <line x1="300" y1="220" x2="343" y2="220" class="arrow-accent"/>
+          <line x1="485" y1="220" x2="533" y2="220" class="arrow"/>
+          <line x1="655" y1="220" x2="713" y2="220" class="arrow-accent"/>
+        </svg>
+      </div>
+    </section>
+
+    <!-- ===== C. DIRECTORY STRUCTURE ===== -->
+    <section>
+      <h2 class="text-2xl font-bold text-white mb-4">Directory Structure</h2>
+      <pre class="bg-gray-900 border border-gray-800 rounded-xl p-6 text-sm text-gray-300 leading-6 overflow-x-auto"><span class="text-teal-400">receipt-ocr/</span>
+├── <span class="text-emerald-400">app/</span>
+│   ├── __init__.py
+│   ├── main.py              <span class="text-gray-500"># FastAPI app (sync + async endpoints)</span>
+│   └── worker.py            <span class="text-gray-500"># Celery worker for async extraction</span>
+├── <span class="text-emerald-400">data/</span>
+│   ├── storage.py           <span class="text-gray-500"># StorageBackend interface (local / S3)</span>
+│   └── dataset.py           <span class="text-gray-500"># CordDataset + WebDataset loaders</span>
+├── <span class="text-emerald-400">train/</span>
+│   ├── finetune_donut.py    <span class="text-gray-500"># LoRA finetuning script</span>
+│   └── checkpoints/
+│       └── donut-receipt-lora/
+├── <span class="text-emerald-400">eval/</span>
+│   ├── run_eval.py          <span class="text-gray-500"># SyncEvalRunner / AsyncEvalRunner</span>
+│   └── metrics.py           <span class="text-gray-500"># field-level precision / recall / F1</span>
+├── <span class="text-emerald-400">scripts/</span>
+│   └── create_shards.py     <span class="text-gray-500"># WebDataset tar shard creation + S3 sync</span>
+├── <span class="text-emerald-400">demo/</span>
+│   └── index.html           <span class="text-gray-500"># this file — single-page live demo</span>
+├── <span class="text-emerald-400">tests/</span>
+│   └── test_api.py          <span class="text-gray-500"># FastAPI TestClient tests (mocked model)</span>
+├── config.yaml
+├── schema.json              <span class="text-gray-500"># GroceryReceipt JSON Schema</span>
+├── pyproject.toml
+├── Dockerfile
+└── docker-compose.yml</pre>
+    </section>
+
+    <!-- ===== D. EVAL RESULTS TABLE ===== -->
+    <section>
+      <h2 class="text-2xl font-bold text-white mb-2">Eval Results</h2>
+      <p class="text-gray-500 text-sm mb-4">
+        donut-cord on 20 CORD val images (2026-05-19).
+        Run <code class="bg-gray-800 text-teal-400 px-1.5 py-0.5 rounded">python eval/compare_models.py</code> to regenerate.
+      </p>
+      <div class="overflow-x-auto rounded-xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 text-gray-400 text-left">
+              <th class="px-5 py-3 font-semibold">Field</th>
+              <th class="px-5 py-3 font-semibold text-right">Precision</th>
+              <th class="px-5 py-3 font-semibold text-right">Recall</th>
+              <th class="px-5 py-3 font-semibold text-right">F1</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800">
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">store_name</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.00</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.00</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.00</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">total</td>
+              <td class="px-5 py-3 text-right text-gray-500">1.00</td>
+              <td class="px-5 py-3 text-right text-gray-500">1.00</td>
+              <td class="px-5 py-3 text-right text-gray-500">1.00</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">item_count</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.95</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.95</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.95</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">item_name</td>
+              <td class="px-5 py-3 text-right text-gray-500">1.00</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.97</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.97</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">item_total</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.95</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.92</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.93</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 text-gray-300">item_qty</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.90</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.90</td>
+              <td class="px-5 py-3 text-right text-gray-500">0.90</td>
+            </tr>
+            <tr class="bg-gray-900/80">
+              <td class="px-5 py-3 font-bold text-teal-400">overall</td>
+              <td class="px-5 py-3 text-right text-gray-500">—</td>
+              <td class="px-5 py-3 text-right text-gray-500">—</td>
+              <td class="px-5 py-3 text-right font-bold text-teal-400">0.76</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== E. LIVE DEMO FORM ===== -->
+    <section>
+      <h2 class="text-2xl font-bold text-white mb-2">Try it Live</h2>
+      <p class="text-gray-500 text-sm mb-6">
+        This is a local demo — the FastAPI server must be running on your machine. The form below calls <code class="bg-gray-800 text-teal-400 px-1.5 py-0.5 rounded">localhost:8000</code>.
+      </p>
+
+      <!-- Setup instructions -->
+      <div class="bg-gray-900 border border-teal-900 rounded-xl p-6 mb-6">
+        <p class="text-sm font-semibold text-teal-400 mb-3">Run locally in 3 steps</p>
+        <pre class="text-sm text-gray-300 leading-6 overflow-x-auto"><span class="text-gray-500">git clone</span> https://github.com/arslankazmi/receipt-ocr
+<span class="text-gray-500">cd</span> receipt-ocr
+pip install -e .
+uvicorn app.main:app   <span class="text-gray-600"># starts on localhost:8000</span>
+<span class="text-gray-600"># then open demo/index.html in your browser</span></pre>
+      </div>
+
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+
+        <p class="text-xs text-amber-400/80 border border-amber-900/60 bg-amber-950/30 rounded-lg px-3 py-2">
+          Upload a receipt image. Requires the local server running at <code class="text-amber-300">localhost:8000</code>.
+        </p>
+
+        <!-- Image preview -->
+        <div id="imagePreview" class="hidden">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Preview</p>
+          <img id="previewImg" src="" alt="Receipt preview"
+            class="max-h-64 rounded-lg border border-gray-700 object-contain" />
+        </div>
+
+        <form id="demoForm" class="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+          <div class="flex-1">
+            <label class="block text-xs text-gray-500 uppercase tracking-wider mb-1.5">Receipt image</label>
+            <label class="flex items-center gap-3 cursor-pointer bg-gray-800 hover:bg-gray-700
+              border border-gray-700 rounded-lg px-4 py-2.5 transition w-full">
+              <svg class="w-5 h-5 text-teal-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828
+                  0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <span id="fileName" class="text-gray-400 text-sm truncate">Choose receipt image…</span>
+              <input type="file" accept="image/*" id="imageInput" class="hidden" />
+            </label>
+          </div>
+          <button type="submit" id="submitBtn"
+            class="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed
+            text-white font-semibold px-6 py-2.5 rounded-lg transition shrink-0">
+            Extract Receipt
+          </button>
+        </form>
+
+        <!-- Status -->
+        <div id="status"></div>
+
+        <!-- JSON output -->
+        <div id="jsonOutputWrap" class="hidden">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Extracted JSON</p>
+          <pre id="jsonOutput"
+            class="bg-gray-950 border border-gray-800 rounded-lg p-4 text-sm leading-5 overflow-x-auto max-h-96"></pre>
+        </div>
+
+        <!-- Field checks -->
+        <div id="fieldChecks" class="hidden">
+          <p class="text-xs text-gray-500 uppercase tracking-wider mb-2">Required fields</p>
+          <div id="fieldChecksInner" class="flex flex-wrap gap-3"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ===== F. SCALE COMPARISON TABLE ===== -->
+    <section>
+      <h2 class="text-2xl font-bold text-white mb-4">Local vs. Scale</h2>
+      <div class="overflow-x-auto rounded-xl border border-gray-800">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-gray-900 text-gray-400 text-left">
+              <th class="px-5 py-3 font-semibold w-36">Component</th>
+              <th class="px-5 py-3 font-semibold">Local demo</th>
+              <th class="px-5 py-3 font-semibold">At scale (550 GB+)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800 text-gray-300">
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">Storage</td>
+              <td class="px-5 py-3">LocalBackend (disk)</td>
+              <td class="px-5 py-3">S3Backend (boto3, LRU cache)</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">Data loading</td>
+              <td class="px-5 py-3">CordDataset (JSONL)</td>
+              <td class="px-5 py-3">WebDataset (tar shards, streaming)</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">Training</td>
+              <td class="px-5 py-3"><code class="bg-gray-800 text-teal-400 px-1 py-0.5 rounded text-xs">python train/finetune_donut.py</code></td>
+              <td class="px-5 py-3"><code class="bg-gray-800 text-teal-400 px-1 py-0.5 rounded text-xs">accelerate launch --multi_gpu</code></td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">Eval</td>
+              <td class="px-5 py-3">SyncEvalRunner (sequential)</td>
+              <td class="px-5 py-3">AsyncEvalRunner (50x concurrent)</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">API</td>
+              <td class="px-5 py-3">Single uvicorn process</td>
+              <td class="px-5 py-3">Docker + Celery workers + Redis</td>
+            </tr>
+            <tr class="hover:bg-gray-900/50 transition">
+              <td class="px-5 py-3 font-medium text-gray-400">Sharding</td>
+              <td class="px-5 py-3 text-gray-600">N/A</td>
+              <td class="px-5 py-3"><code class="bg-gray-800 text-teal-400 px-1 py-0.5 rounded text-xs">scripts/create_shards.py → aws s3 sync</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="text-center text-gray-500 text-sm py-8 border-t border-gray-800 mt-12">
+    Built by <a href="https://github.com/arslankazmi" class="text-emerald-400 hover:underline">Arslan Kazmi</a> &middot;
+    <a href="https://github.com/arslankazmi/receipt-ocr" class="text-emerald-400 hover:underline">GitHub</a> &middot;
+    Dataset: <a href="https://huggingface.co/datasets/naver-clova-ix/cord-v2" class="text-emerald-400 hover:underline">CORD CC-BY-4.0</a>
+  </footer>
+
+  <!-- ===== JAVASCRIPT ===== -->
+  <script>
+    const API_BASE = "http://localhost:8000";
+    const REQUIRED_FIELDS = [
+      { key: "store.name", label: "store.name" },
+      { key: "total",      label: "total" },
+      { key: "items",      label: "items" },
+    ];
+
+    // ---------- image preview ----------
+    document.getElementById("imageInput").addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById("fileName").textContent = file.name;
+      const url = URL.createObjectURL(file);
+      document.getElementById("previewImg").src = url;
+      document.getElementById("imagePreview").classList.remove("hidden");
+    });
+
+    // ---------- syntax highlight ----------
+    function highlight(json) {
+      if (typeof json !== "string") json = JSON.stringify(json, null, 2);
+      return json
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+          if (/^"/.test(match)) {
+            if (/:$/.test(match)) return `<span class="syntax-key">${match}</span>`;
+            return `<span class="syntax-string">${match}</span>`;
+          }
+          if (/true|false/.test(match)) return `<span class="syntax-bool">${match}</span>`;
+          if (/null/.test(match))       return `<span class="syntax-null">${match}</span>`;
+          return `<span class="syntax-number">${match}</span>`;
+        });
+    }
+
+    // ---------- field check ----------
+    function getNestedValue(obj, path) {
+      return path.split(".").reduce((o, k) => (o && o[k] !== undefined ? o[k] : undefined), obj);
+    }
+
+    function renderFieldChecks(data) {
+      const wrap = document.getElementById("fieldChecks");
+      const inner = document.getElementById("fieldChecksInner");
+      inner.innerHTML = "";
+      REQUIRED_FIELDS.forEach(({ key, label }) => {
+        const val = getNestedValue(data, key);
+        const ok = val !== undefined && val !== null &&
+          (Array.isArray(val) ? val.length > 0 : true);
+        const pill = document.createElement("span");
+        pill.className = `inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium
+          ${ok ? "bg-emerald-900/50 text-emerald-400 border border-emerald-800"
+               : "bg-red-900/50 text-red-400 border border-red-800"}`;
+        pill.innerHTML = `${ok ? "&#10003;" : "&#10007;"} ${label}`;
+        inner.appendChild(pill);
+      });
+      wrap.classList.remove("hidden");
+    }
+
+    // ---------- form submit ----------
+    document.getElementById("demoForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const file = document.getElementById("imageInput").files[0];
+      if (!file) {
+        setStatus("warning", "Please select an image first.");
+        return;
+      }
+
+      const btn = document.getElementById("submitBtn");
+      btn.disabled = true;
+      btn.textContent = "Extracting…";
+      setStatus("info", "Sending to API…");
+      document.getElementById("jsonOutputWrap").classList.add("hidden");
+      document.getElementById("fieldChecks").classList.add("hidden");
+
+      try {
+        const formData = new FormData();
+        formData.append("image", file);
+
+        const resp = await fetch(`${API_BASE}/extract`, { method: "POST", body: formData });
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          setStatus("error", `API error ${resp.status}: ${JSON.stringify(err.detail ?? err)}`);
+          return;
+        }
+
+        const data = await resp.json();
+        document.getElementById("jsonOutput").innerHTML = highlight(data);
+        document.getElementById("jsonOutputWrap").classList.remove("hidden");
+        renderFieldChecks(data);
+        setStatus("success", "Extraction complete.");
+      } catch (err) {
+        setStatus("network-error", err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Extract Receipt";
+      }
+    });
+
+    function setStatus(type, msg) {
+      const el = document.getElementById("status");
+      if (type === "network-error") {
+        el.innerHTML = `<div class="bg-red-950/50 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
+          &#9889; Server not running &mdash; start it with:
+          <code class="bg-gray-900 px-1.5 py-0.5 rounded ml-1">uvicorn app.main:app</code>
+          <div class="text-xs mt-1 text-red-600">${msg}</div>
+        </div>`;
+        return;
+      }
+      const styles = {
+        info:    "bg-gray-800/60 border-gray-700 text-gray-400",
+        success: "bg-emerald-950/50 border-emerald-800 text-emerald-400",
+        warning: "bg-yellow-950/50 border-yellow-800 text-yellow-400",
+        error:   "bg-red-950/50 border-red-800 text-red-400",
+      };
+      el.innerHTML = `<div class="border rounded-lg px-4 py-3 text-sm ${styles[type] ?? styles.info}">${msg}</div>`;
+    }
+  </script>
+</body>
+</html>
