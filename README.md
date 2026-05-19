@@ -2,6 +2,8 @@
 
 End-to-end receipt OCR and structured extraction pipeline using Donut + LoRA fine-tuning.
 
+**[Live demo →](https://arslankazmi.github.io/receipt-ocr/)**
+
 ## What it does
 
 receipt-ocr takes a photo of a grocery receipt and outputs a structured JSON object conforming to `schema.json` — including store name, line items with quantities and prices, subtotal, taxes, and total. It fine-tunes a Donut (document understanding transformer) model on CORD data using LoRA for parameter-efficient training. An async FastAPI service exposes the model for real-time inference.
