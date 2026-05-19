@@ -11,8 +11,8 @@ data:
   seed: 42
 
 model:
-  path: train/checkpoints/donut-receipt-lora  # or s3://bucket/checkpoints/...
-  base: naver-clova-ix/donut-base
+  path: naver-clova-ix/donut-base-finetuned-cord-v2   # use cord model directly
+  base: naver-clova-ix/donut-base-finetuned-cord-v2
 
 eval:
   concurrency: 1        # 1=sync, >1=async with semaphore
