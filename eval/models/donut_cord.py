@@ -73,12 +73,29 @@ class DonutCordRunner(ModelRunner):
         self._model.eval()
 
     def _decode_cord_json(self, sequence: str) -> dict:
-        """Extract and parse the JSON payload between <s_cord-v2> and </s_cord-v2>."""
+        """Parse the CORD token sequence using processor.token2json.
+
+        DonutProcessor outputs a special-token tagged format (e.g. <s_menu><s_nm>...)
+        not valid JSON. token2json converts it to a plain dict.
+
+        The result is wrapped as {"cord-v2": {...}} so we unwrap the inner dict.
+        Falls back to regex JSON parsing for legacy compatibility.
+        """
+        if self._processor is not None and hasattr(self._processor, "token2json"):
+            try:
+                parsed = self._processor.token2json(sequence)
+                # Unwrap top-level "cord-v2" key if present
+                if "cord-v2" in parsed:
+                    return parsed["cord-v2"]
+                return parsed
+            except Exception:
+                pass
+
+        # Fallback: try to parse JSON between tags
         match = re.search(r"<s_cord-v2>(.*?)</s_cord-v2>", sequence, re.DOTALL)
         if match:
             payload = match.group(1).strip()
         else:
-            # Fallback: try to parse the whole sequence as JSON
             payload = sequence.strip()
         try:
             return json.loads(payload)
@@ -88,7 +105,11 @@ class DonutCordRunner(ModelRunner):
     def _remap(self, cord: dict) -> dict:
         """Remap CORD internal format to our schema."""
         items = []
-        for idx, menu_item in enumerate(cord.get("menu") or [], start=1):
+        menu_raw = cord.get("menu") or []
+        # token2json returns a dict (not list) when there is only one menu item
+        if isinstance(menu_raw, dict):
+            menu_raw = [menu_raw]
+        for idx, menu_item in enumerate(menu_raw, start=1):
             qty_raw = menu_item.get("cnt")
             try:
                 qty = float(qty_raw) if qty_raw else 1.0
@@ -137,12 +158,13 @@ class DonutCordRunner(ModelRunner):
             return_tensors="pt",
         ).input_ids.to(self._device)
 
+        max_new_tokens = self._model.decoder.config.max_position_embeddings
         with torch.no_grad():
             outputs = self._model.generate(
                 pixel_values,
                 decoder_input_ids=decoder_input_ids,
-                max_length=self._model.decoder.config.max_position_embeddings,
-                early_stopping=True,
+                max_new_tokens=max_new_tokens,
+                max_length=None,  # suppress conflict with max_new_tokens
                 pad_token_id=self._processor.tokenizer.pad_token_id,
                 eos_token_id=self._processor.tokenizer.eos_token_id,
                 use_cache=True,
@@ -151,15 +173,6 @@ class DonutCordRunner(ModelRunner):
                 return_dict_in_generate=True,
             )
 
-        sequence = self._processor.batch_decode(
-            outputs.sequences, skip_special_tokens=False
-        )[0]
-        sequence = self._processor.tokenizer.convert_tokens_to_string(
-            self._processor.tokenizer.convert_ids_to_tokens(
-                outputs.sequences[0].tolist()
-            )
-        )
-        # Use the raw decoded sequence for JSON extraction
         raw_sequence = self._processor.batch_decode(
             outputs.sequences, skip_special_tokens=False
         )[0]

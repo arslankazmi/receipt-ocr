@@ -11,14 +11,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import base64
 import json
 import os
 import sys
 from dataclasses import asdict
-from io import BytesIO
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -50,43 +47,15 @@ class SyncEvalRunner:
     def __init__(self, client: anthropic.Anthropic, schema: dict, cfg: dict) -> None:
         self.client = client
         self.schema = schema
-        self.schema_json = json.dumps(schema)
         self.cfg = cfg
-        self.model = "claude-sonnet-4-6"
-        self.max_tokens = 2048
-
-    def _call_model(self, messages: list[dict], extra_messages: list[dict] | None = None) -> str:
-        full_messages = messages + (extra_messages or [])
-        resp = self.client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            messages=full_messages,
-        )
-        return resp.content[0].text
-
-    def _extract(self, img, gt: dict) -> dict:
-        img_b64, media_type = _encode_image(img)
-        messages = _build_messages(img_b64, media_type, self.schema_json)
-        raw = self._call_model(messages)
-        pred = _parse_response(raw)
-
-        if pred is None:
-            # Retry once
-            retry_messages = [
-                {"role": "assistant", "content": raw},
-                {"role": "user", "content": _RETRY_PROMPT},
-            ]
-            raw2 = self._call_model(messages, retry_messages)
-            pred = _parse_response(raw2) or {}
-
-        return pred
+        self._runner = ClaudeRunner()
 
     def run(self, dataset: CordDataset, max_samples: int | None) -> list[dict]:
         results = []
         limit = max_samples if max_samples is not None else len(dataset)
         for idx in range(min(limit, len(dataset))):
             img, gt = dataset[idx]
-            pred = self._extract(img, gt)
+            pred = self._runner.extract(img)
             score = score_receipt(pred, gt)
             results.append({"pred": pred, "gt": gt, "score": score})
             print(f"  [{idx + 1}/{limit}] overall_f1={score.overall_f1():.3f}", flush=True)

@@ -64,12 +64,25 @@ Image
 
 ## Results
 
-| Model                  | store.name F1 | total F1 | item_name F1 | item_total F1 | overall F1 |
-|------------------------|---------------|----------|--------------|---------------|------------|
-| Donut-base (zero-shot) | —             | —        | —            | —             | —          |
-| Donut + LoRA (ours)    | —             | —        | —            | —             | —          |
+### Model comparison
 
-_Populate after running `python eval/run_eval.py`._
+Evaluated on 20 CORD val images (2026-05-19).
+
+| Model         | store_name F1 | total F1 | item_name F1 | item_total F1 | item_qty F1 | overall F1 |
+|---------------|---------------|----------|--------------|---------------|-------------|------------|
+| donut-cord    | 0.00          | 1.00     | 0.97         | 0.93          | 0.90        | 0.76       |
+| qwen2vl-2b    | —             | —        | —            | —             | —           | —          |
+| trocr-base    | 0.00          | 0.00     | 0.00         | 0.00          | 0.00        | 0.00       |
+| claude-sonnet | —             | —        | —            | —             | —           | —          |
+
+### Fine-tune improvement
+
+Run `python eval/run_eval.py` to populate these numbers.
+
+| Model                    | store_name F1 | total F1 | item_name F1 | item_total F1 | item_qty F1 | overall F1 |
+|--------------------------|---------------|----------|--------------|---------------|-------------|------------|
+| donut-cord (baseline)    | —             | —        | —            | —             | —           | —          |
+| Donut + LoRA (ours)      | —             | —        | —            | —             | —           | —          |
 
 ## Quick start
 
@@ -84,13 +97,16 @@ python scripts/fetch_public.py --dataset cord --out public/cord/
 #    data.annotations: /absolute/path/to/public/cord/annotations.jsonl
 #    data.images_dir:  /absolute/path/to/public/cord/images
 
-# 4. Evaluate (requires trained checkpoint)
+# 4. Compare pre-trained models (no API key needed for donut-cord, qwen2vl-2b, trocr-base)
+python eval/compare_models.py --max-samples 10
+
+# 5. Evaluate fine-tuned model (requires trained checkpoint)
 python eval/run_eval.py
 
-# 5. Fine-tune
+# 7. Fine-tune
 python train/finetune_donut.py
 
-# 6. Start API server
+# 8. Start API server
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 

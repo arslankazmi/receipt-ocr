@@ -1,0 +1,18 @@
+{
+  "trocr-base": {
+    "store_name_f1": 0.0,
+    "total_f1": 0.0,
+    "item_name_f1": 0.0,
+    "item_total_f1": 0.0,
+    "item_qty_f1": 0.0,
+    "overall_f1": 0.0
+  },
+  "donut-cord": {
+    "store_name_f1": 0.0,
+    "total_f1": 1.0,
+    "item_name_f1": 0.975,
+    "item_total_f1": 0.925,
+    "item_qty_f1": 0.9,
+    "overall_f1": 0.76
+  }
+}
