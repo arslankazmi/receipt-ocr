@@ -12,5 +12,4 @@ dist/
 *.pt
 *.safetensors
 eval/results.json
-eval/comparison_results.json
 data/shards/

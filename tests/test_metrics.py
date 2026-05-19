@@ -248,6 +248,23 @@ class TestScoreReceipt:
 # aggregate_scores
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# ModelRunner interface
+# ---------------------------------------------------------------------------
+
+class TestModelRunnerInterface:
+    def test_model_runner_interface(self):
+        """Verify ModelRunner ABC is importable and has correct interface."""
+        from eval.models.base import ModelRunner
+        import inspect
+        assert inspect.isabstract(ModelRunner)
+        assert hasattr(ModelRunner, "extract")
+
+
+# ---------------------------------------------------------------------------
+# aggregate_scores
+# ---------------------------------------------------------------------------
+
 class TestAggregateScores:
     def test_empty_list(self):
         agg = aggregate_scores([])
