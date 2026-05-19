@@ -2,7 +2,7 @@
 
 End-to-end receipt OCR and structured extraction pipeline using Donut + LoRA fine-tuning.
 
-**[Live demo →](https://arslankazmi.github.io/receipt-ocr/)**
+**[Interactive project docs →](https://arslankazmi.github.io/receipt-ocr/)**
 
 ## What it does
 
