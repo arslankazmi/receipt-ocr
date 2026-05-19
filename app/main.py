@@ -42,9 +42,9 @@ _schema: dict = {}
 def load_model(model_path: str, base_model: str):
     """Load DonutProcessor + VisionEncoderDecoderModel, applying LoRA if present.
 
-    If neither the checkpoint directory nor a local HF cache exists, raises
-    FileNotFoundError immediately (no network download) so the server can
-    start without a model and /healthz remains reachable.
+    Tries local checkpoint first; falls back to HF cache (local_files_only=False
+    allows reading from the HF cache dir without forcing a new network download
+    when the model is already cached).
     """
     import torch
     from transformers import DonutProcessor, VisionEncoderDecoderModel
@@ -52,17 +52,15 @@ def load_model(model_path: str, base_model: str):
     checkpoint = Path(model_path)
     if checkpoint.exists():
         source = str(checkpoint)
-        local_only = True
     else:
-        # Use base model from HF cache only — never block on a download
-        source = base_model
-        local_only = True
+        # model_path is a HF repo id — load from HF cache (already downloaded)
+        source = model_path
 
-    logger.info("Loading processor from %s (local_files_only=%s)", source, local_only)
-    processor = DonutProcessor.from_pretrained(source, local_files_only=local_only)
+    logger.info("Loading processor from %s", source)
+    processor = DonutProcessor.from_pretrained(source)
 
-    logger.info("Loading model from %s (local_files_only=%s)", source, local_only)
-    model = VisionEncoderDecoderModel.from_pretrained(source, local_files_only=local_only)
+    logger.info("Loading model from %s", source)
+    model = VisionEncoderDecoderModel.from_pretrained(source)
 
     # Apply PEFT LoRA adapter if adapter_config.json exists alongside checkpoint
     adapter_cfg = checkpoint / "adapter_config.json"
@@ -80,41 +78,95 @@ def load_model(model_path: str, base_model: str):
 
 
 def run_inference(model, processor, image_bytes: bytes) -> dict:
-    """Run Donut inference on raw image bytes; return parsed JSON dict."""
+    """Run Donut-CORD inference on raw image bytes; return our schema dict."""
     import torch
     from PIL import Image
 
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
+    # Prepare inputs
     pixel_values = processor(img, return_tensors="pt").pixel_values
 
-    task_prompt = "<s_receipt>"
+    # Detect device
+    device = next(model.parameters()).device
+    pixel_values = pixel_values.to(device)
+
+    # Decode with CORD task token
+    task_prompt = "<s_cord-v2>"
     decoder_input_ids = processor.tokenizer(
         task_prompt, add_special_tokens=False, return_tensors="pt"
-    ).input_ids
-
-    eos_id = processor.tokenizer.convert_tokens_to_ids(["</s_receipt>"])[0]
+    ).input_ids.to(device)
 
     with torch.no_grad():
         outputs = model.generate(
             pixel_values,
             decoder_input_ids=decoder_input_ids,
-            max_length=512,
+            max_length=model.decoder.config.max_position_embeddings,
             early_stopping=True,
             pad_token_id=processor.tokenizer.pad_token_id,
-            eos_token_id=eos_id,
-        )
+            eos_token_id=processor.tokenizer.eos_token_id,
+            use_cache=True,
+            num_beams=1,
+            bad_words_ids=[[processor.tokenizer.unk_token_id]],
+            return_dict_in_generate=True,
+        ).sequences
 
     seq = processor.batch_decode(outputs, skip_special_tokens=False)[0]
-    seq = seq.replace(processor.tokenizer.eos_token, "").replace(
-        processor.tokenizer.pad_token, ""
-    )
+    cord_data = processor.token2json(seq)
+    if "cord-v2" in cord_data:
+        cord_data = cord_data["cord-v2"]
 
-    start = seq.find("<s_receipt>") + len("<s_receipt>")
-    end = seq.find("</s_receipt>")
-    json_str = seq[start:end].strip() if end > start else seq
+    return _remap_cord_to_schema(cord_data)
 
-    return json.loads(json_str)
+
+def _remap_cord_to_schema(cord: dict) -> dict:
+    """Remap CORD token2json output to our GroceryReceipt schema."""
+    import re
+
+    def _parse_num(v) -> float:
+        if v is None:
+            return 0.0
+        s = re.sub(r"[^\d.,]", "", str(v))
+        if "," in s and "." in s:
+            s = s.replace(",", "") if s.index(",") < s.index(".") else s.replace(".", "").replace(",", ".")
+        elif "," in s:
+            s = s.replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+
+    menu_raw = cord.get("menu", [])
+    if isinstance(menu_raw, dict):
+        menu_raw = [menu_raw]
+
+    items = []
+    for i, item in enumerate(menu_raw, 1):
+        items.append({
+            "line_number": i,
+            "name": item.get("nm", "UNKNOWN"),
+            "normalized_name": None,
+            "quantity": _parse_num(item.get("cnt", "1")) or 1.0,
+            "unit": "each",
+            "unit_price": _parse_num(item.get("unitprice")) or None,
+            "total": _parse_num(item.get("price", "0")),
+            "sku": None,
+            "category": None,
+            "tax_code": None,
+            "discount_applied": None,
+        })
+
+    sub = cord.get("sub_total", {})
+    total_sec = cord.get("total", {})
+
+    return {
+        "store": {"name": sub.get("storenm", "") or "Unknown"},
+        "date": "1970-01-01",
+        "items": items or [{"line_number": 1, "name": "UNKNOWN", "quantity": 1, "unit": "each", "total": 0.0}],
+        "total": _parse_num(total_sec.get("total_price", "0")),
+        "currency": "KRW",
+        "metadata": {"source": "user_scan", "annotator": "donut-cord"},
+    }
 
 
 def validate_against_schema(data: dict, schema: dict) -> list[str]:
@@ -239,8 +291,6 @@ async def extract(image: UploadFile = File(..., description="Receipt image (JPEG
 
     try:
         result = run_inference(_model, _processor, image_bytes)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=500, detail=f"Model output could not be parsed as JSON: {exc}")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
