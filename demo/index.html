@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>receipt-ocr — VLM-powered receipt extraction</title>
+  <meta name="description" content="VLM-powered receipt OCR pipeline: multi-model eval (Donut-CORD 0.76 F1), Donut finetune, FastAPI, WebDataset shards. Scales from 200 images to 550 GB.">
+  <meta property="og:title" content="receipt-ocr — VLM Receipt Extraction Pipeline">
+  <meta property="og:description" content="Multi-model receipt OCR: Donut-CORD 0.76 F1 baseline, scalable to 550 GB. Open source.">
+  <meta property="og:url" content="https://arslankazmi.github.io/receipt-ocr/">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -254,13 +258,26 @@
 
     <!-- ===== E. LIVE DEMO FORM ===== -->
     <section>
-      <h2 class="text-2xl font-bold text-white mb-2">Live Demo</h2>
+      <h2 class="text-2xl font-bold text-white mb-2">Try it Live</h2>
       <p class="text-gray-500 text-sm mb-6">
-        Requires the API running locally:
-        <code class="bg-gray-800 text-teal-400 px-1.5 py-0.5 rounded">uvicorn app.main:app --reload</code>
+        This is a local demo — the FastAPI server must be running on your machine. The form below calls <code class="bg-gray-800 text-teal-400 px-1.5 py-0.5 rounded">localhost:8000</code>.
       </p>
 
+      <!-- Setup instructions -->
+      <div class="bg-gray-900 border border-teal-900 rounded-xl p-6 mb-6">
+        <p class="text-sm font-semibold text-teal-400 mb-3">Run locally in 3 steps</p>
+        <pre class="text-sm text-gray-300 leading-6 overflow-x-auto"><span class="text-gray-500">git clone</span> https://github.com/arslankazmi/receipt-ocr
+<span class="text-gray-500">cd</span> receipt-ocr
+pip install -e .
+uvicorn app.main:app   <span class="text-gray-600"># starts on localhost:8000</span>
+<span class="text-gray-600"># then open demo/index.html in your browser</span></pre>
+      </div>
+
       <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-5">
+
+        <p class="text-xs text-amber-400/80 border border-amber-900/60 bg-amber-950/30 rounded-lg px-3 py-2">
+          Upload a receipt image. Requires the local server running at <code class="text-amber-300">localhost:8000</code>.
+        </p>
 
         <!-- Image preview -->
         <div id="imagePreview" class="hidden">
@@ -359,8 +376,10 @@
 
   </main>
 
-  <footer class="border-t border-gray-800 py-8 text-center text-gray-600 text-sm">
-    receipt-ocr &middot; Donut (naver-clova-ix/donut-base) + LoRA
+  <footer class="text-center text-gray-500 text-sm py-8 border-t border-gray-800 mt-12">
+    Built by <a href="https://github.com/arslankazmi" class="text-emerald-400 hover:underline">Arslan Kazmi</a> &middot;
+    <a href="https://github.com/arslankazmi/receipt-ocr" class="text-emerald-400 hover:underline">GitHub</a> &middot;
+    Dataset: <a href="https://huggingface.co/datasets/naver-clova-ix/cord-v2" class="text-emerald-400 hover:underline">CORD CC-BY-4.0</a>
   </footer>
 
   <!-- ===== JAVASCRIPT ===== -->
@@ -466,7 +485,7 @@
       const el = document.getElementById("status");
       if (type === "network-error") {
         el.innerHTML = `<div class="bg-red-950/50 border border-red-800 rounded-lg px-4 py-3 text-sm text-red-400">
-          <strong>Network error</strong> — start the server first:
+          &#9889; Server not running &mdash; start it with:
           <code class="bg-gray-900 px-1.5 py-0.5 rounded ml-1">uvicorn app.main:app</code>
           <div class="text-xs mt-1 text-red-600">${msg}</div>
         </div>`;
